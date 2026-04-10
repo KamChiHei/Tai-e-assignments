@@ -140,8 +140,16 @@ public class ConstantPropagation extends
             return canHoldInt(var) ? in.get(var) : Value.getNAC();
         }
         if (exp instanceof BinaryExp binaryExp) {
-            Value v1 = in.get(binaryExp.getOperand1());
-            Value v2 = in.get(binaryExp.getOperand2());
+            Var operand1 = binaryExp.getOperand1();
+            Var operand2 = binaryExp.getOperand2();
+            Value v1 = canHoldInt(operand1) ? in.get(operand1) : Value.getNAC();
+            Value v2 = canHoldInt(operand2) ? in.get(operand2) : Value.getNAC();
+            BinaryExp.Op op = binaryExp.getOperator();
+            if (op instanceof ArithmeticExp.Op aop &&
+                    (aop == ArithmeticExp.Op.DIV || aop == ArithmeticExp.Op.REM) &&
+                    v2.isConstant() && v2.getConstant() == 0) {
+                return Value.getUndef();
+            }
             if (v1.isNAC() || v2.isNAC()) {
                 return Value.getNAC();
             }
@@ -150,14 +158,13 @@ public class ConstantPropagation extends
             }
             int c1 = v1.getConstant();
             int c2 = v2.getConstant();
-            BinaryExp.Op op = binaryExp.getOperator();
             if (op instanceof ArithmeticExp.Op aop) {
                 return switch (aop) {
                     case ADD -> Value.makeConstant(c1 + c2);
                     case SUB -> Value.makeConstant(c1 - c2);
                     case MUL -> Value.makeConstant(c1 * c2);
-                    case DIV -> c2 == 0 ? Value.getUndef() : Value.makeConstant(c1 / c2);
-                    case REM -> c2 == 0 ? Value.getUndef() : Value.makeConstant(c1 % c2);
+                    case DIV -> Value.makeConstant(c1 / c2);
+                    case REM -> Value.makeConstant(c1 % c2);
                 };
             } else if (op instanceof ConditionExp.Op cop) {
                 return switch (cop) {
