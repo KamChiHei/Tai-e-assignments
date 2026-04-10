@@ -28,7 +28,9 @@ import pascal.taie.analysis.graph.cfg.CFG;
 import pascal.taie.analysis.graph.cfg.Edge;
 
 import java.util.ArrayDeque;
+import java.util.LinkedHashSet;
 import java.util.Queue;
+import java.util.Set;
 
 class WorkListSolver<Node, Fact> extends Solver<Node, Fact> {
 
@@ -38,8 +40,21 @@ class WorkListSolver<Node, Fact> extends Solver<Node, Fact> {
 
     @Override
     protected void doSolveForward(CFG<Node> cfg, DataflowResult<Node, Fact> result) {
+        Set<Node> reachable = new LinkedHashSet<>();
+        Queue<Node> queue = new ArrayDeque<>();
+        reachable.add(cfg.getEntry());
+        queue.add(cfg.getEntry());
+        while (!queue.isEmpty()) {
+            Node node = queue.poll();
+            for (Node succ : cfg.getSuccsOf(node)) {
+                if (reachable.add(succ)) {
+                    queue.add(succ);
+                }
+            }
+        }
+
         Queue<Node> workList = new ArrayDeque<>();
-        for (Node node : cfg) {
+        for (Node node : reachable) {
             if (!cfg.isEntry(node)) {
                 workList.add(node);
             }
