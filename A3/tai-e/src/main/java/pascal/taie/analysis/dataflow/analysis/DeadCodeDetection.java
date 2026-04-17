@@ -45,7 +45,10 @@ import pascal.taie.ir.stmt.If;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.ir.stmt.SwitchStmt;
 
+import java.util.ArrayDeque;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -69,9 +72,62 @@ public class DeadCodeDetection extends MethodAnalysis {
                 ir.getResult(LiveVariableAnalysis.ID);
         // keep statements (dead code) sorted in the resulting set
         Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
-        // TODO - finish me
-        // Your task is to recognize dead code in ir and add it to deadCode
+        Set<Stmt> reachable = new HashSet<>();
+        Queue<Stmt> workList = new ArrayDeque<>();
+        workList.add(cfg.getEntry());
+        reachable.add(cfg.getEntry());
+        while (!workList.isEmpty()) {
+            Stmt stmt = workList.poll();
+            for (Edge<Stmt> edge : cfg.getOutEdgesOf(stmt)) {
+                if (isFeasibleEdge(stmt, edge, constants)) {
+                    Stmt succ = edge.getTarget();
+                    if (reachable.add(succ)) {
+                        workList.add(succ);
+                    }
+                }
+            }
+        }
+
+        for (Stmt stmt : ir.getStmts()) {
+            if (!reachable.contains(stmt)) {
+                deadCode.add(stmt);
+                continue;
+            }
+            if (stmt instanceof AssignStmt<?, ?> assignStmt &&
+                    assignStmt.getLValue() instanceof Var lhs &&
+                    hasNoSideEffect(assignStmt.getRValue()) &&
+                    !liveVars.getOutFact(stmt).contains(lhs)) {
+                deadCode.add(stmt);
+            }
+        }
         return deadCode;
+    }
+
+    private static boolean isFeasibleEdge(Stmt stmt, Edge<Stmt> edge,
+                                          DataflowResult<Stmt, CPFact> constants) {
+        if (stmt instanceof If ifStmt) {
+            Value condition = ConstantPropagation.evaluate(
+                    ifStmt.getCondition(), constants.getInFact(stmt));
+            if (condition.isConstant()) {
+                boolean isTrue = condition.getConstant() != 0;
+                return isTrue ? edge.getKind() == Edge.Kind.IF_TRUE
+                        : edge.getKind() == Edge.Kind.IF_FALSE;
+            }
+            return true;
+        }
+        if (stmt instanceof SwitchStmt switchStmt) {
+            Value value = constants.getInFact(stmt).get(switchStmt.getVar());
+            if (value.isConstant()) {
+                if (edge.getKind() == Edge.Kind.SWITCH_CASE) {
+                    return edge.getCaseValue() == value.getConstant();
+                }
+                if (edge.getKind() == Edge.Kind.SWITCH_DEFAULT) {
+                    return !switchStmt.getCaseValues().contains(value.getConstant());
+                }
+            }
+            return true;
+        }
+        return true;
     }
 
     /**
