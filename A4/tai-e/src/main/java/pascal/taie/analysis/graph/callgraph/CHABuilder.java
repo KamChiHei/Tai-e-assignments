@@ -23,7 +23,6 @@
 package pascal.taie.analysis.graph.callgraph;
 
 import pascal.taie.World;
-import pascal.taie.ir.proginfo.MethodRef;
 import pascal.taie.ir.stmt.Invoke;
 import pascal.taie.language.classes.ClassHierarchy;
 import pascal.taie.language.classes.JClass;
@@ -62,7 +61,6 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
                     .filter(stmt -> stmt instanceof Invoke)
                     .map(stmt -> (Invoke) stmt)
                     .forEach(callSite -> {
-                callGraph.addCallSite(callSite);
                 Set<JMethod> callees = resolve(callSite);
                 callees.forEach(callee -> {
                     callGraph.addEdge(new Edge<>(CallGraphs.getCallKind(callSite), callSite, callee));
