@@ -133,20 +133,24 @@ public class ConstantPropagation extends
             if (v1.isUndef() || v2.isUndef()) return Value.getUndef();
             int c1 = v1.getConstant(), c2 = v2.getConstant();
             try {
-                return switch (binaryExp) {
-                    case ArithmeticExp arithmeticExp -> switch (arithmeticExp.getOperator()) {
+                if (binaryExp instanceof ArithmeticExp arithmeticExp) {
+                    return switch (arithmeticExp.getOperator()) {
                         case ADD -> Value.makeConstant(c1 + c2);
                         case SUB -> Value.makeConstant(c1 - c2);
                         case MUL -> Value.makeConstant(c1 * c2);
                         case DIV -> c2 == 0 ? Value.getUndef() : Value.makeConstant(c1 / c2);
                         case REM -> c2 == 0 ? Value.getUndef() : Value.makeConstant(c1 % c2);
                     };
-                    case BitwiseExp bitwiseExp -> switch (bitwiseExp.getOperator()) {
+                }
+                if (binaryExp instanceof BitwiseExp bitwiseExp) {
+                    return switch (bitwiseExp.getOperator()) {
                         case OR -> Value.makeConstant(c1 | c2);
                         case AND -> Value.makeConstant(c1 & c2);
                         case XOR -> Value.makeConstant(c1 ^ c2);
                     };
-                    case ConditionExp conditionExp -> switch (conditionExp.getOperator()) {
+                }
+                if (binaryExp instanceof ConditionExp conditionExp) {
+                    return switch (conditionExp.getOperator()) {
                         case EQ -> Value.makeConstant(c1 == c2 ? 1 : 0);
                         case NE -> Value.makeConstant(c1 != c2 ? 1 : 0);
                         case LT -> Value.makeConstant(c1 < c2 ? 1 : 0);
@@ -154,13 +158,15 @@ public class ConstantPropagation extends
                         case LE -> Value.makeConstant(c1 <= c2 ? 1 : 0);
                         case GE -> Value.makeConstant(c1 >= c2 ? 1 : 0);
                     };
-                    case ShiftExp shiftExp -> switch (shiftExp.getOperator()) {
+                }
+                if (binaryExp instanceof ShiftExp shiftExp) {
+                    return switch (shiftExp.getOperator()) {
                         case SHL -> Value.makeConstant(c1 << c2);
                         case SHR -> Value.makeConstant(c1 >> c2);
                         case USHR -> Value.makeConstant(c1 >>> c2);
                     };
-                    default -> Value.getNAC();
-                };
+                }
+                return Value.getNAC();
             } catch (ArithmeticException e) {
                 return Value.getUndef();
             }
