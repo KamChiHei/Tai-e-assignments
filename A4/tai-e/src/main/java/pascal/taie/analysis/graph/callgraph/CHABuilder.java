@@ -58,7 +58,10 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
             if (!callGraph.addReachableMethod(method)) {
                 continue;
             }
-            method.getIR().invokes(false).forEach(callSite -> {
+            method.getIR().stmts()
+                    .filter(stmt -> stmt instanceof Invoke)
+                    .map(stmt -> (Invoke) stmt)
+                    .forEach(callSite -> {
                 callGraph.addCallSite(callSite);
                 Set<JMethod> callees = resolve(callSite);
                 callees.forEach(callee -> {
@@ -67,7 +70,7 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
                         workList.add(callee);
                     }
                 });
-            });
+                    });
         }
         return callGraph;
     }
