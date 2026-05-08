@@ -56,33 +56,42 @@ public class ConstantPropagation extends
 
     @Override
     public CPFact newBoundaryFact(CFG<Stmt> cfg) {
-        // TODO - finish me
-        return null;
+        CPFact fact = new CPFact();
+        IR ir = cfg.getIR();
+        ir.getParams().stream().filter(ConstantPropagation::canHoldInt)
+                .forEach(v -> fact.update(v, Value.getNAC()));
+        return fact;
     }
 
     @Override
     public CPFact newInitialFact() {
-        // TODO - finish me
-        return null;
+        return new CPFact();
     }
 
     @Override
     public void meetInto(CPFact fact, CPFact target) {
-        // TODO - finish me
+        fact.forEach((var, value) -> target.update(var, meetValue(value, target.get(var))));
     }
 
     /**
      * Meets two Values.
      */
     public Value meetValue(Value v1, Value v2) {
-        // TODO - finish me
-        return null;
+        if (v1.isNAC() || v2.isNAC()) return Value.getNAC();
+        if (v1.isUndef()) return v2;
+        if (v2.isUndef()) return v1;
+        return v1.equals(v2) ? v1 : Value.getNAC();
     }
 
     @Override
     public boolean transferNode(Stmt stmt, CPFact in, CPFact out) {
-        // TODO - finish me
-        return false;
+        CPFact oldOut = out.copy();
+        out.clear();
+        in.forEach(out::update);
+        if (stmt instanceof DefinitionStmt<?, ?> defStmt && defStmt.getLValue() instanceof Var lhs && canHoldInt(lhs)) {
+            out.update(lhs, evaluate(defStmt.getRValue(), in));
+        }
+        return !out.equals(oldOut);
     }
 
     /**
@@ -111,7 +120,51 @@ public class ConstantPropagation extends
      * @return the resulting {@link Value}
      */
     public static Value evaluate(Exp exp, CPFact in) {
-        // TODO - finish me
-        return null;
+        if (exp instanceof IntLiteral intLiteral) {
+            return Value.makeConstant(intLiteral.getValue());
+        }
+        if (exp instanceof Var var) {
+            return in.get(var);
+        }
+        if (exp instanceof BinaryExp binaryExp) {
+            Value v1 = in.get(binaryExp.getOperand1());
+            Value v2 = in.get(binaryExp.getOperand2());
+            if (v1.isNAC() || v2.isNAC()) return Value.getNAC();
+            if (v1.isUndef() || v2.isUndef()) return Value.getUndef();
+            int c1 = v1.getConstant(), c2 = v2.getConstant();
+            try {
+                return switch (binaryExp) {
+                    case ArithmeticExp arithmeticExp -> switch (arithmeticExp.getOperator()) {
+                        case ADD -> Value.makeConstant(c1 + c2);
+                        case SUB -> Value.makeConstant(c1 - c2);
+                        case MUL -> Value.makeConstant(c1 * c2);
+                        case DIV -> c2 == 0 ? Value.getUndef() : Value.makeConstant(c1 / c2);
+                        case REM -> c2 == 0 ? Value.getUndef() : Value.makeConstant(c1 % c2);
+                    };
+                    case BitwiseExp bitwiseExp -> switch (bitwiseExp.getOperator()) {
+                        case OR -> Value.makeConstant(c1 | c2);
+                        case AND -> Value.makeConstant(c1 & c2);
+                        case XOR -> Value.makeConstant(c1 ^ c2);
+                    };
+                    case ConditionExp conditionExp -> switch (conditionExp.getOperator()) {
+                        case EQ -> Value.makeConstant(c1 == c2 ? 1 : 0);
+                        case NE -> Value.makeConstant(c1 != c2 ? 1 : 0);
+                        case LT -> Value.makeConstant(c1 < c2 ? 1 : 0);
+                        case GT -> Value.makeConstant(c1 > c2 ? 1 : 0);
+                        case LE -> Value.makeConstant(c1 <= c2 ? 1 : 0);
+                        case GE -> Value.makeConstant(c1 >= c2 ? 1 : 0);
+                    };
+                    case ShiftExp shiftExp -> switch (shiftExp.getOperator()) {
+                        case SHL -> Value.makeConstant(c1 << c2);
+                        case SHR -> Value.makeConstant(c1 >> c2);
+                        case USHR -> Value.makeConstant(c1 >>> c2);
+                    };
+                    default -> Value.getNAC();
+                };
+            } catch (ArithmeticException e) {
+                return Value.getUndef();
+            }
+        }
+        return Value.getNAC();
     }
 }

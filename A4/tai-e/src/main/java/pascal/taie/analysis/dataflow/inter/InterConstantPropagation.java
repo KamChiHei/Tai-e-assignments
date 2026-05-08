@@ -76,37 +76,63 @@ public class InterConstantPropagation extends
 
     @Override
     protected boolean transferCallNode(Stmt stmt, CPFact in, CPFact out) {
-        // TODO - finish me
-        return false;
+        if (out.equals(in)) {
+            return false;
+        }
+        out.clear();
+        in.forEach(out::update);
+        return true;
     }
 
     @Override
     protected boolean transferNonCallNode(Stmt stmt, CPFact in, CPFact out) {
-        // TODO - finish me
-        return false;
+        return cp.transferNode(stmt, in, out);
     }
 
     @Override
     protected CPFact transferNormalEdge(NormalEdge<Stmt> edge, CPFact out) {
-        // TODO - finish me
-        return null;
+        return out.copy();
     }
 
     @Override
     protected CPFact transferCallToReturnEdge(CallToReturnEdge<Stmt> edge, CPFact out) {
-        // TODO - finish me
-        return null;
+        CPFact result = out.copy();
+        Stmt callSite = edge.getSource();
+        if (callSite instanceof Invoke invoke) {
+            Var lhs = invoke.getResult();
+            if (lhs != null) {
+                result.remove(lhs);
+            }
+        }
+        return result;
     }
 
     @Override
     protected CPFact transferCallEdge(CallEdge<Stmt> edge, CPFact callSiteOut) {
-        // TODO - finish me
-        return null;
+        CPFact result = new CPFact();
+        InvokeExp invokeExp = ((Invoke) edge.getSource()).getInvokeExp();
+        IR calleeIR = edge.getCallee().getIR();
+        int limit = Math.min(invokeExp.getArgCount(), calleeIR.getParams().size());
+        for (int i = 0; i < limit; ++i) {
+            Var param = calleeIR.getParam(i);
+            if (ConstantPropagation.canHoldInt(param)) {
+                result.update(param, callSiteOut.get(invokeExp.getArg(i)));
+            }
+        }
+        return result;
     }
 
     @Override
     protected CPFact transferReturnEdge(ReturnEdge<Stmt> edge, CPFact returnOut) {
-        // TODO - finish me
-        return null;
+        CPFact result = new CPFact();
+        Stmt callSite = edge.getCallSite();
+        if (callSite instanceof Invoke invoke && invoke.getResult() != null) {
+            Value ret = Value.getUndef();
+            for (Var retVar : edge.getReturnVars()) {
+                ret = cp.meetValue(ret, returnOut.get(retVar));
+            }
+            result.update(invoke.getResult(), ret);
+        }
+        return result;
     }
 }
