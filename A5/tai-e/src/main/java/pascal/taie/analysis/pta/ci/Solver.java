@@ -254,10 +254,9 @@ class Solver {
         for (Invoke callSite : var.getInvokes()) {
             JMethod callee = resolveCallee(recv, callSite);
             Edge<Invoke, JMethod> edge = new Edge<>(CallGraphs.getCallKind(callSite), callSite, callee);
-            if (!callGraph.addEdge(edge)) {
-                continue;
+            if (callGraph.addEdge(edge)) {
+                addReachable(callee);
             }
-            addReachable(callee);
             Var thisVar = callee.getIR().getThis();
             if (thisVar != null) {
                 workList.addEntry(pointerFlowGraph.getVarPtr(thisVar), new PointsToSet(recv));
