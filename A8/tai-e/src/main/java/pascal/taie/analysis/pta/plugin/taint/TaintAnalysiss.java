@@ -26,10 +26,25 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
+import pascal.taie.analysis.pta.core.cs.element.CSCallSite;
 import pascal.taie.analysis.pta.core.cs.context.Context;
 import pascal.taie.analysis.pta.core.cs.element.CSManager;
+import pascal.taie.analysis.pta.core.cs.element.CSMethod;
+import pascal.taie.analysis.pta.core.cs.element.CSObj;
+import pascal.taie.analysis.pta.core.cs.element.CSVar;
+import pascal.taie.analysis.pta.core.cs.element.Pointer;
 import pascal.taie.analysis.pta.cs.Solver;
+import pascal.taie.analysis.pta.pts.PointsToSet;
+import pascal.taie.analysis.pta.pts.PointsToSetFactory;
+import pascal.taie.ir.exp.InvokeExp;
+import pascal.taie.ir.exp.InvokeInstanceExp;
+import pascal.taie.ir.exp.Var;
+import pascal.taie.ir.stmt.Invoke;
+import pascal.taie.language.classes.JMethod;
+import pascal.taie.language.type.Type;
 
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -60,7 +75,87 @@ public class TaintAnalysiss {
         logger.info(config);
     }
 
-    // TODO - finish me
+    private final Map<Pointer, Set<TaintTransferEdge>> transferEdges = new LinkedHashMap<>();
+
+    public void onNewCall(CSCallSite csCallSite, CSMethod csCallee) {
+        Invoke callSite = csCallSite.getCallSite();
+        JMethod callee = csCallee.getMethod();
+        Context callerContext = csCallSite.getContext();
+        processSource(callSite, callee, callerContext);
+        processTransfers(callSite, callee, callerContext);
+    }
+
+    private void processSource(Invoke callSite, JMethod callee,
+                               Context callerContext) {
+        if (callSite.getResult() == null) {
+            return;
+        }
+        for (Source source : config.getSources()) {
+            if (source.method().equals(callee)) {
+                CSObj taint = makeTaint(callSite, source.type());
+                CSVar result = csManager.getCSVar(callerContext, callSite.getResult());
+                solver.addVarPointsTo(result, PointsToSetFactory.make(taint));
+            }
+        }
+    }
+
+    private void processTransfers(Invoke callSite, JMethod callee,
+                                  Context callerContext) {
+        for (TaintTransfer transfer : config.getTransfers()) {
+            if (!transfer.method().equals(callee)) {
+                continue;
+            }
+            Var fromVar = getVar(callSite, transfer.from());
+            Var toVar = getVar(callSite, transfer.to());
+            if (fromVar == null || toVar == null) {
+                continue;
+            }
+            CSVar from = csManager.getCSVar(callerContext, fromVar);
+            CSVar to = csManager.getCSVar(callerContext, toVar);
+            TaintTransferEdge edge = new TaintTransferEdge(to, transfer.type());
+            if (transferEdges.computeIfAbsent(from, ignored -> new HashSet<>()).add(edge)) {
+                transferTaints(from.getPointsToSet(), edge);
+            }
+        }
+    }
+
+    public void onNewPointsTo(Pointer pointer, PointsToSet delta) {
+        Set<TaintTransferEdge> edges = transferEdges.get(pointer);
+        if (edges != null) {
+            edges.forEach(edge -> transferTaints(delta, edge));
+        }
+    }
+
+    private void transferTaints(PointsToSet pointsToSet, TaintTransferEdge edge) {
+        PointsToSet taints = PointsToSetFactory.make();
+        for (CSObj csObj : pointsToSet) {
+            if (manager.isTaint(csObj.getObject())) {
+                Invoke sourceCall = manager.getSourceCall(csObj.getObject());
+                taints.addObject(makeTaint(sourceCall, edge.type()));
+            }
+        }
+        if (!taints.isEmpty()) {
+            solver.addVarPointsTo(edge.to(), taints);
+        }
+    }
+
+    private CSObj makeTaint(Invoke sourceCall, Type type) {
+        return csManager.getCSObj(emptyContext, manager.makeTaint(sourceCall, type));
+    }
+
+    private Var getVar(Invoke callSite, int index) {
+        if (index == TaintTransfer.BASE) {
+            if (callSite.getInvokeExp() instanceof InvokeInstanceExp invokeInstanceExp) {
+                return invokeInstanceExp.getBase();
+            }
+            return null;
+        }
+        if (index == TaintTransfer.RESULT) {
+            return callSite.getResult();
+        }
+        InvokeExp invokeExp = callSite.getInvokeExp();
+        return index < invokeExp.getArgCount() ? invokeExp.getArg(index) : null;
+    }
 
     public void onFinish() {
         Set<TaintFlow> taintFlows = collectTaintFlows();
@@ -70,8 +165,30 @@ public class TaintAnalysiss {
     private Set<TaintFlow> collectTaintFlows() {
         Set<TaintFlow> taintFlows = new TreeSet<>();
         PointerAnalysisResult result = solver.getResult();
-        // TODO - finish me
-        // You could query pointer analysis results you need via variable result.
+        result.getCSCallGraph().edges().forEach(edge -> {
+            CSCallSite csCallSite = edge.getCallSite();
+            Invoke callSite = csCallSite.getCallSite();
+            JMethod callee = edge.getCallee().getMethod();
+            Context callerContext = csCallSite.getContext();
+            for (Sink sink : config.getSinks()) {
+                if (sink.method().equals(callee)) {
+                    Var var = getVar(callSite, sink.index());
+                    if (var != null) {
+                        CSVar csVar = csManager.getCSVar(callerContext, var);
+                        for (CSObj csObj : csVar.getPointsToSet()) {
+                            if (manager.isTaint(csObj.getObject())) {
+                                taintFlows.add(new TaintFlow(
+                                        manager.getSourceCall(csObj.getObject()),
+                                        callSite, sink.index()));
+                            }
+                        }
+                    }
+                }
+            }
+        });
         return taintFlows;
+    }
+
+    private record TaintTransferEdge(CSVar to, Type type) {
     }
 }
